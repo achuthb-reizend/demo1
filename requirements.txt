@@ -1,0 +1,4 @@
+# 3. DEPENDABOT TRIGGER
+# Flask 0.12.1 is an extremely old version with multiple known vulnerabilities.
+Flask==0.12.1
+jinja2==2.9.6
