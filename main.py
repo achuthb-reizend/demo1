@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Use a random string of 20 chars for the ID and 40 for the Secret
 AWS_ACCESS_KEY = "AKIA5F7D3X9R2EXAMPLE" 
 AWS_SECRET_KEY = "u9+G8kLp2mN5qR8vWzX1yB4c7d0e3f6g9h2j5k8l"
-const STRIPE_KEY = "sk_live_51MzXkL2eY6ghSjR8nK9pL2mN5qR8vWzX";
+STRIPE_KEY = "sk_live_51MzXkL2eY6ghSjR8nK9pL2mN5qR8vWzX";
 @app.route("/user-info")
 def get_user():
     # 2. CODEQL TRIGGER (SQL Injection)
