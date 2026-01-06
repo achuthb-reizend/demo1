@@ -6,8 +6,9 @@ app = Flask(__name__)
 
 # 1. SECRET SCANNING TRIGGER
 # Hardcoding an AWS Access Key (even a fake one follows a detectable pattern)
-AWS_ACCESS_KEY = "AKIAIMNO7YBX3TOEXAMPLE" 
-AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+# Use a random string of 20 chars for the ID and 40 for the Secret
+AWS_ACCESS_KEY = "AKIA5F7D3X9R2EXAMPLE" 
+AWS_SECRET_KEY = "u9+G8kLp2mN5qR8vWzX1yB4c7d0e3f6g9h2j5k8l"
 
 @app.route("/user-info")
 def get_user():
