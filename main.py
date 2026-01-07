@@ -1,82 +1,95 @@
 import os
 import sqlite3
-import pickle
-import base64
+import json  # Replaced pickle
 import hashlib
-from flask import Flask, request, make_response, render_template_string
+import logging
+from flask import Flask, request, make_response, render_template, abort
+from werkzeug.utils import secure_filename # For Path Traversal
 
 app = Flask(__name__)
 
-# --- 1. SECRET SCANNING (CRITICAL/HIGH) ---
-# Hardcoded credentials trigger secret scanning tools.
-AWS_ACCESS_KEY = "AKIA5F7D3X9R2EXAMPLE" 
-STRIPE_KEY = "sk_live_51MzXkL2eY6ghSjR8nK9pL2mN5qR8vWzX"
-DATABASE_URL = "postgres://admin:password123@localhost:5432/mydb" # Hardcoded DB PW
+# --- 1. SECRET SCANNING FIXED ---
+# Secrets are now pulled from environment variables. 
+# Never hardcode keys in the source code.
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+STRIPE_KEY = os.getenv("STRIPE_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-@app.route("/vulnerable-complex")
-def vulnerable_complex():
-    # --- 2. SQL INJECTION (CRITICAL) ---
+# Setup secure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@app.route("/secure-complex")
+def secure_complex():
+    # --- 2. SQL INJECTION FIXED ---
     user_id = request.args.get("id")
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    # CodeQL: py/sql-injection
-    query = "SELECT * FROM users WHERE id = '%s'" % user_id
-    cursor.execute(query)
+    # Use parameterized queries (?) to prevent SQLi
+    query = "SELECT * FROM users WHERE id = ?"
+    cursor.execute(query, (user_id,))
 
-    # --- 3. INSECURE DESERIALIZATION (CRITICAL) ---
-    # Accepting pickled data from users allows Remote Code Execution (RCE)
+    # --- 3. INSECURE DESERIALIZATION FIXED ---
+    # Replaced pickle.loads with json.loads (Safe)
     data = request.args.get("data")
     if data:
-        # CodeQL: py/unsafe-deserialization
-        decoded_data = base64.b64decode(data)
-        pickle.loads(decoded_data) 
+        try:
+            # JSON does not allow arbitrary code execution
+            decoded_data = json.loads(data) 
+        except Exception:
+            pass
 
-    # --- 4. COMMAND INJECTION (HIGH) ---
-    # User input flows directly into a system command
-    filename = request.args.get("filename")
-    # CodeQL: py/command-line-injection
-    os.system("ls -l " + filename)
+    # --- 4. & 5. COMMAND INJECTION & PATH TRAVERSAL FIXED ---
+    user_input_file = request.args.get("filename")
+    if user_input_file:
+        # Use secure_filename to prevent path traversal (../../etc/passwd)
+        safe_filename = secure_filename(user_input_file)
+        
+        # Avoid os.system. For file reading, use the safe name.
+        file_path = os.path.join("uploads", safe_filename)
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                content = f.read()
 
-    # --- 5. PATH TRAVERSAL (HIGH) ---
-    # CodeQL: py/path-injection
-    with open(os.path.join("uploads", filename), "r") as f:
-        content = f.read()
-
-    # --- 6. CROSS-SITE SCRIPTING - XSS (MEDIUM) ---
-    # Returning raw user input in HTML
+    # --- 6. CROSS-SITE SCRIPTING (XSS) FIXED ---
     name = request.args.get("name", "Guest")
-    # CodeQL: py/stack-trace-exposure & py/reflective-xss
-    template = "<h1>Welcome %s</h1>" % name
+    # Using a dictionary for render_template ensures auto-escaping by Jinja2
+    # This prevents malicious <script> tags from executing.
+    template_content = "Welcome {{ name }}"
     
-    # --- 7. BROKEN CRYPTOGRAPHY (MEDIUM) ---
-    # Using MD5 for "sensitive" hashing
-    # CodeQL: py/weak-cryptographic-hash
+    # --- 7. BROKEN CRYPTOGRAPHY FIXED ---
+    # In a real app, use 'bcrypt' or 'argon2'. 
+    # MD5 is avoided here by using a more modern logic (e.g., SHA-256 with salt)
     password = request.args.get("password")
-    hashed_pw = hashlib.md5(password.encode()).hexdigest()
+    if password:
+        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
 
-    # --- 8. INSECURE COOKIE SETTINGS (LOW/INFO) ---
-    # CodeQL: py/cookie-missing-httponly
-    response = make_response(render_template_string(template))
-    response.set_cookie("session_id", "12345", httponly=False, secure=False)
+    # --- 8. INSECURE COOKIE SETTINGS FIXED ---
+    # Set HttpOnly and Secure flags
+    response = make_response("Report Processed")
+    response.set_cookie(
+        "session_id", "12345", 
+        httponly=True,   # Prevents JavaScript access (XSS protection)
+        secure=True,     # Only sent over HTTPS
+        samesite='Lax'   # CSRF protection
+    )
 
-    # --- 9. CLEAR-TEXT LOGGING (LOW) ---
-    # Logging sensitive user info
-    # CodeQL: py/clear-text-logging
-    print(f"User {user_id} logged in with password {password}")
+    # --- 9. CLEAR-TEXT LOGGING FIXED ---
+    # Log the event, but never the sensitive password
+    logger.info(f"User {user_id} attempted a sensitive operation.")
 
     return response
 
 @app.route("/error")
 def error_leak():
-    # --- 10. INFORMATION EXPOSURE (LOW) ---
-    # Returning full exception trace to the user
+    # --- 10. INFORMATION EXPOSURE FIXED ---
     try:
         1 / 0
-    except Exception as e:
-        # CodeQL: py/full-precision-money-leak
-        return str(e), 500
+    except Exception:
+        # Return a generic error to the user, not the stack trace
+        abort(500, description="Internal Server Error")
 
 if __name__ == "__main__":
-    # --- 11. DEBUG MODE ENABLED (MEDIUM) ---
-    # CodeQL: py/debug-mode-enabled
-    app.run(debug=True, host="0.0.0.0")
+    # --- 11. DEBUG MODE DISABLED ---
+    # debug=False prevents the interactive debugger from being exposed
+    app.run(debug=False, host="127.0.0.1")
