@@ -1,95 +1,102 @@
 import os
 import sqlite3
-import json  # Replaced pickle
+import pickle
+import base64
 import hashlib
-import logging
-from flask import Flask, request, make_response, render_template, abort
-from werkzeug.utils import secure_filename # For Path Traversal
+import crypt  # Added: Legacy/Deprecated module
+import hmac
+from flask import Flask, request, make_response, render_template_string
 
 app = Flask(__name__)
 
-# --- 1. SECRET SCANNING FIXED ---
-# Secrets are now pulled from environment variables. 
-# Never hardcode keys in the source code.
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-STRIPE_KEY = os.getenv("STRIPE_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL")
+# --- 1. SECRET SCANNING (CRITICAL/HIGH) ---
+AWS_ACCESS_KEY = "AKIA5F7D3X9R2EXAMPLE" 
+STRIPE_KEY = "sk_live_51MzXkL2eY6ghSjR8nK9pL2mN5qR8vWzX"
+DATABASE_URL = "postgres://admin:password123@localhost:5432/mydb"
 
-# Setup secure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-@app.route("/secure-complex")
-def secure_complex():
-    # --- 2. SQL INJECTION FIXED ---
+@app.route("/vulnerable-complex")
+def vulnerable_complex():
+    # --- 2. SQL INJECTION (CRITICAL) ---
     user_id = request.args.get("id")
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    # Use parameterized queries (?) to prevent SQLi
-    query = "SELECT * FROM users WHERE id = ?"
-    cursor.execute(query, (user_id,))
+    query = "SELECT * FROM users WHERE id = '%s'" % user_id
+    cursor.execute(query)
 
-    # --- 3. INSECURE DESERIALIZATION FIXED ---
-    # Replaced pickle.loads with json.loads (Safe)
+    # --- 3. INSECURE DESERIALIZATION (CRITICAL) ---
     data = request.args.get("data")
     if data:
-        try:
-            # JSON does not allow arbitrary code execution
-            decoded_data = json.loads(data) 
-        except Exception:
-            pass
+        decoded_data = base64.b64decode(data)
+        pickle.loads(decoded_data) 
 
-    # --- 4. & 5. COMMAND INJECTION & PATH TRAVERSAL FIXED ---
-    user_input_file = request.args.get("filename")
-    if user_input_file:
-        # Use secure_filename to prevent path traversal (../../etc/passwd)
-        safe_filename = secure_filename(user_input_file)
-        
-        # Avoid os.system. For file reading, use the safe name.
-        file_path = os.path.join("uploads", safe_filename)
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                content = f.read()
+    # --- 4. COMMAND INJECTION (HIGH) ---
+    filename = request.args.get("filename")
+    os.system("ls -l " + filename)
 
-    # --- 6. CROSS-SITE SCRIPTING (XSS) FIXED ---
+    # --- 5. PATH TRAVERSAL (HIGH) ---
+    with open(os.path.join("uploads", filename), "r") as f:
+        content = f.read()
+
+    # --- 6. RESOURCE LEAK (NEW: WARNING) ---
+    # Opening a file without a 'with' block or .close() call
+    # CodeQL: py/resource-leak
+    log_file = open("access_log.txt", "a")
+    log_file.write(f"Access from {user_id}\n")
+    # intentionally not closed
+
+    # --- 7. DEPRECATED FUNCTION (NEW: NOTE/WARNING) ---
+    # base64.encodestring is deprecated in Python 3.x
+    # CodeQL: py/deprecated-method-call
+    sample_text = b"test"
+    encoded_sample = base64.encodestring(sample_text)
+
+    # --- 8. CROSS-SITE SCRIPTING - XSS (MEDIUM) ---
     name = request.args.get("name", "Guest")
-    # Using a dictionary for render_template ensures auto-escaping by Jinja2
-    # This prevents malicious <script> tags from executing.
-    template_content = "Welcome {{ name }}"
+    template = "<h1>Welcome %s</h1>" % name
     
-    # --- 7. BROKEN CRYPTOGRAPHY FIXED ---
-    # In a real app, use 'bcrypt' or 'argon2'. 
-    # MD5 is avoided here by using a more modern logic (e.g., SHA-256 with salt)
+    # --- 9. BROKEN CRYPTOGRAPHY & WEAK HASH (MEDIUM) ---
     password = request.args.get("password")
-    if password:
-        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+    hashed_pw = hashlib.md5(password.encode()).hexdigest()
+    
+    # --- 10. LEGACY/DEPRECATED CRYPTO (NEW: WARNING) ---
+    # The 'crypt' module is deprecated since Python 3.11
+    # CodeQL: py/weak-cryptographic-hash
+    legacy_hash = crypt.crypt(password, "salt")
 
-    # --- 8. INSECURE COOKIE SETTINGS FIXED ---
-    # Set HttpOnly and Secure flags
-    response = make_response("Report Processed")
-    response.set_cookie(
-        "session_id", "12345", 
-        httponly=True,   # Prevents JavaScript access (XSS protection)
-        secure=True,     # Only sent over HTTPS
-        samesite='Lax'   # CSRF protection
-    )
+    # --- 11. INSECURE COMPARISON (NEW: WARNING) ---
+    # Using '==' for secret comparison instead of hmac.compare_digest
+    # CodeQL: py/timing-attack
+    provided_token = request.args.get("token")
+    SECRET_TOKEN = "admin_secret_123"
+    if provided_token == SECRET_TOKEN:
+        print("Authenticated")
 
-    # --- 9. CLEAR-TEXT LOGGING FIXED ---
-    # Log the event, but never the sensitive password
-    logger.info(f"User {user_id} attempted a sensitive operation.")
+    # --- 12. INSECURE COOKIE SETTINGS (LOW/INFO) ---
+    response = make_response(render_template_string(template))
+    response.set_cookie("session_id", "12345", httponly=False, secure=False)
+
+    # --- 13. CLEAR-TEXT LOGGING (LOW) ---
+    print(f"User {user_id} logged in with password {password}")
 
     return response
 
 @app.route("/error")
 def error_leak():
-    # --- 10. INFORMATION EXPOSURE FIXED ---
+    # --- 14. BROAD EXCEPTION & INFO EXPOSURE (LOW) ---
     try:
         1 / 0
-    except Exception:
-        # Return a generic error to the user, not the stack trace
-        abort(500, description="Internal Server Error")
+    except: # NEW: Catching all exceptions (py/broad-exception)
+        import traceback
+        # py/full-precision-money-leak or py/stack-trace-exposure
+        return traceback.format_exc(), 500
+
+@app.route("/redirect")
+def open_redirect():
+    # --- 15. OPEN REDIRECT (NEW: HIGH) ---
+    # CodeQL: py/open-redirect
+    target = request.args.get("url")
+    return make_response("", 302, {"Location": target})
 
 if __name__ == "__main__":
-    # --- 11. DEBUG MODE DISABLED ---
-    # debug=False prevents the interactive debugger from being exposed
-    app.run(debug=False, host="127.0.0.1")
+    # --- 16. DEBUG MODE ENABLED ---
+    app.run(debug=True, host="0.0.0.0")
