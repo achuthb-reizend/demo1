@@ -3,27 +3,23 @@ import sqlite3
 import pickle
 import base64
 import hashlib
-import crypt
-import hmac
-import sys # Trigger for Recommendation: Unused import (if not used below)
-import math # Trigger for Recommendation: Unused import
+import sys # NOTE: Unused import (py/unused-import)
+import math # NOTE: Unused import (py/unused-import)
 from flask import Flask, request, make_response, render_template_string
 
-# --- 1. CODE QUALITY: DUPLICATE IMPORT (WARNING) ---
-# CodeQL: py/module-imported-multiple-times
+# --- 1. WARNING: DUPLICATE IMPORT ---
+# CodeQL ID: py/module-imported-multiple-times
 import os 
 
 app = Flask(__name__)
 
-# --- 2. CODE QUALITY: REDUNDANT ASSIGNMENT (WARNING) ---
-# CodeQL: py/redundant-assignment
-def redundant_stuff():
-    x = 10
-    x = x # Self-assignment
+# --- 2. NOTE: UNUSED GLOBAL VARIABLE ---
+# CodeQL ID: py/unused-global-variable
+UNUSED_CONFIG_KEY = "SECRET_12345"
 
 @app.route("/vulnerable-complex")
 def vulnerable_complex():
-    # --- [KEEPING PREVIOUS CRITICAL ERRORS] ---
+    # --- [CRITICAL ERRORS REMAIN] ---
     user_id = request.args.get("id")
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
@@ -32,62 +28,41 @@ def vulnerable_complex():
 
     data = request.args.get("data")
     if data:
-        decoded_data = base64.b64decode(data)
-        pickle.loads(decoded_data) 
+        pickle.loads(base64.b64decode(data)) 
 
-    filename = request.args.get("filename")
-    os.system("ls -l " + filename)
+    # --- 3. WARNING: DEPRECATED FUNCTION ---
+    # CodeQL ID: py/deprecated-method-call
+    # base64.encodestring was deprecated in Python 3.1
+    legacy_encoded = base64.encodestring(b"test_data")
 
-    # --- 3. CODE QUALITY: UNREACHABLE CODE (WARNING) ---
-    # CodeQL: py/unreachable-statement
-    return_val = "Process complete"
+    # --- 4. WARNING: UNREACHABLE CODE ---
+    # CodeQL ID: py/unreachable-statement
+    return_val = "Done"
     return return_val
-    print("This will never execute!") # Logic error
+    print("This line will never be reached") # Dead code
 
-    # --- 4. CODE QUALITY: REDUNDANT COMPARISON (WARNING) ---
-    # CodeQL: py/redundant-comparison or py/comparison-of-identical-values
-    val = 10
-    if val == 10 and val == 10:
+    # --- 5. WARNING: REDUNDANT ASSIGNMENT ---
+    # CodeQL ID: py/redundant-assignment
+    temp_count = 10
+    temp_count = temp_count # Self-assignment
+
+    # --- 6. NOTE: UNUSED LOCAL VARIABLE ---
+    # CodeQL ID: py/unused-local-variable
+    internal_flag = "DEBUG_OFF" # Defined but never read
+
+    # --- 7. WARNING: COMPARISON OF IDENTICAL VALUES ---
+    # CodeQL ID: py/comparison-of-identical-values
+    if user_id == user_id:
         pass
 
-    # --- 5. CODE QUALITY: MULTIPLE DEFINITION (WARNING) ---
-    # CodeQL: py/multiple-definition
-    temp_var = "initial"
-    temp_var = "overwrite" # Overwriting without using the first one
-    print(temp_var)
+    return "Check your Security tab for quality alerts!"
 
-    # --- 6. CODE QUALITY: IMPLICIT STRING CONCAT IN LIST (NOTE/WARNING) ---
-    # CodeQL: py/implicit-string-concatenation-in-list
-    # Missing comma between strings in a list
-    my_list = [
-        "first_item"
-        "second_item" # This becomes "first_itemsecond_item"
-    ]
-
-    # --- 7. DEPRECATED FUNCTION (NOTE/WARNING) ---
-    # base64.encodestring is deprecated in Python 3
-    # CodeQL: py/deprecated-method-call
-    sample_text = b"test"
-    encoded_sample = base64.encodestring(sample_text)
-
-    # --- [REMAINING ORIGINAL CODE] ---
-    name = request.args.get("name", "Guest")
-    template = "<h1>Welcome %s</h1>" % name
-    password = request.args.get("password")
-    hashed_pw = hashlib.md5(password.encode()).hexdigest()
-    
-    response = make_response(render_template_string(template))
-    response.set_cookie("session_id", "12345", httponly=False, secure=False)
-    return response
-
-@app.route("/error")
-def error_leak():
-    # --- 8. CODE QUALITY: BROAD EXCEPTION (WARNING) ---
-    # CodeQL: py/broad-exception
-    try:
-        1 / 0
-    except: # Catch-all is poor practice
-        return "Error", 500
+# --- 8. WARNING: EMPTY EXCEPT BLOCK ---
+# CodeQL ID: py/empty-except
+try:
+    x = 1 / 0
+except:
+    pass # This suppresses all errors and is a major quality warning
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True)
