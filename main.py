@@ -3,100 +3,91 @@ import sqlite3
 import pickle
 import base64
 import hashlib
-import crypt  # Added: Legacy/Deprecated module
+import crypt
 import hmac
+import sys # Trigger for Recommendation: Unused import (if not used below)
+import math # Trigger for Recommendation: Unused import
 from flask import Flask, request, make_response, render_template_string
+
+# --- 1. CODE QUALITY: DUPLICATE IMPORT (WARNING) ---
+# CodeQL: py/module-imported-multiple-times
+import os 
 
 app = Flask(__name__)
 
-# --- 1. SECRET SCANNING (CRITICAL/HIGH) ---
-AWS_ACCESS_KEY = "AKIA5F7D3X9R2EXAMPLE" 
-STRIPE_KEY = "sk_live_51MzXkL2eY6ghSjR8nK9pL2mN5qR8vWzX"
-DATABASE_URL = "postgres://admin:password123@localhost:5432/mydb"
+# --- 2. CODE QUALITY: REDUNDANT ASSIGNMENT (WARNING) ---
+# CodeQL: py/redundant-assignment
+def redundant_stuff():
+    x = 10
+    x = x # Self-assignment
 
 @app.route("/vulnerable-complex")
 def vulnerable_complex():
-    # --- 2. SQL INJECTION (CRITICAL) ---
+    # --- [KEEPING PREVIOUS CRITICAL ERRORS] ---
     user_id = request.args.get("id")
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     query = "SELECT * FROM users WHERE id = '%s'" % user_id
     cursor.execute(query)
 
-    # --- 3. INSECURE DESERIALIZATION (CRITICAL) ---
     data = request.args.get("data")
     if data:
         decoded_data = base64.b64decode(data)
         pickle.loads(decoded_data) 
 
-    # --- 4. COMMAND INJECTION (HIGH) ---
     filename = request.args.get("filename")
     os.system("ls -l " + filename)
 
-    # --- 5. PATH TRAVERSAL (HIGH) ---
-    with open(os.path.join("uploads", filename), "r") as f:
-        content = f.read()
+    # --- 3. CODE QUALITY: UNREACHABLE CODE (WARNING) ---
+    # CodeQL: py/unreachable-statement
+    return_val = "Process complete"
+    return return_val
+    print("This will never execute!") # Logic error
 
-    # --- 6. RESOURCE LEAK (NEW: WARNING) ---
-    # Opening a file without a 'with' block or .close() call
-    # CodeQL: py/resource-leak
-    log_file = open("access_log.txt", "a")
-    log_file.write(f"Access from {user_id}\n")
-    # intentionally not closed
+    # --- 4. CODE QUALITY: REDUNDANT COMPARISON (WARNING) ---
+    # CodeQL: py/redundant-comparison or py/comparison-of-identical-values
+    val = 10
+    if val == 10 and val == 10:
+        pass
 
-    # --- 7. DEPRECATED FUNCTION (NEW: NOTE/WARNING) ---
-    # base64.encodestring is deprecated in Python 3.x
+    # --- 5. CODE QUALITY: MULTIPLE DEFINITION (WARNING) ---
+    # CodeQL: py/multiple-definition
+    temp_var = "initial"
+    temp_var = "overwrite" # Overwriting without using the first one
+    print(temp_var)
+
+    # --- 6. CODE QUALITY: IMPLICIT STRING CONCAT IN LIST (NOTE/WARNING) ---
+    # CodeQL: py/implicit-string-concatenation-in-list
+    # Missing comma between strings in a list
+    my_list = [
+        "first_item"
+        "second_item" # This becomes "first_itemsecond_item"
+    ]
+
+    # --- 7. DEPRECATED FUNCTION (NOTE/WARNING) ---
+    # base64.encodestring is deprecated in Python 3
     # CodeQL: py/deprecated-method-call
     sample_text = b"test"
     encoded_sample = base64.encodestring(sample_text)
 
-    # --- 8. CROSS-SITE SCRIPTING - XSS (MEDIUM) ---
+    # --- [REMAINING ORIGINAL CODE] ---
     name = request.args.get("name", "Guest")
     template = "<h1>Welcome %s</h1>" % name
-    
-    # --- 9. BROKEN CRYPTOGRAPHY & WEAK HASH (MEDIUM) ---
     password = request.args.get("password")
     hashed_pw = hashlib.md5(password.encode()).hexdigest()
     
-    # --- 10. LEGACY/DEPRECATED CRYPTO (NEW: WARNING) ---
-    # The 'crypt' module is deprecated since Python 3.11
-    # CodeQL: py/weak-cryptographic-hash
-    legacy_hash = crypt.crypt(password, "salt")
-
-    # --- 11. INSECURE COMPARISON (NEW: WARNING) ---
-    # Using '==' for secret comparison instead of hmac.compare_digest
-    # CodeQL: py/timing-attack
-    provided_token = request.args.get("token")
-    SECRET_TOKEN = "admin_secret_123"
-    if provided_token == SECRET_TOKEN:
-        print("Authenticated")
-
-    # --- 12. INSECURE COOKIE SETTINGS (LOW/INFO) ---
     response = make_response(render_template_string(template))
     response.set_cookie("session_id", "12345", httponly=False, secure=False)
-
-    # --- 13. CLEAR-TEXT LOGGING (LOW) ---
-    print(f"User {user_id} logged in with password {password}")
-
     return response
 
 @app.route("/error")
 def error_leak():
-    # --- 14. BROAD EXCEPTION & INFO EXPOSURE (LOW) ---
+    # --- 8. CODE QUALITY: BROAD EXCEPTION (WARNING) ---
+    # CodeQL: py/broad-exception
     try:
         1 / 0
-    except: # NEW: Catching all exceptions (py/broad-exception)
-        import traceback
-        # py/full-precision-money-leak or py/stack-trace-exposure
-        return traceback.format_exc(), 500
-
-@app.route("/redirect")
-def open_redirect():
-    # --- 15. OPEN REDIRECT (NEW: HIGH) ---
-    # CodeQL: py/open-redirect
-    target = request.args.get("url")
-    return make_response("", 302, {"Location": target})
+    except: # Catch-all is poor practice
+        return "Error", 500
 
 if __name__ == "__main__":
-    # --- 16. DEBUG MODE ENABLED ---
     app.run(debug=True, host="0.0.0.0")
