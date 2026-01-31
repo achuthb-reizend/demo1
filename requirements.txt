@@ -2,3 +2,9 @@
 # Flask 0.12.1 is an extremely old version with multiple known vulnerabilities.
 Flask==0.12.1
 jinja2==2.9.6
+pyOpenSSL==18.0.0
+# Direct Vulnerability: This version has multiple high-severity CVEs
+requests==2.20.0
+
+# Another Direct Vulnerability (Django 1.11 is extremely old/insecure)
+Django==1.11.29
